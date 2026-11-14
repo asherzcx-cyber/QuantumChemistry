@@ -1,0 +1,9 @@
+qiskit==2.6.2
+qiskit-nature==0.8.0
+qiskit-algorithms==0.4.0
+pyscf==2.15.0
+numpy>=2.0,<3
+scipy>=1.14
+pandas>=2.0
+matplotlib>=3.3
+jupyterlab>=4.0
