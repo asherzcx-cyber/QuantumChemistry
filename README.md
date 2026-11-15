@@ -4,7 +4,7 @@ This project solves the Qiskit Fall Fest 2026 quantum chemistry side challenge:
 
 > Plot the potential energy surface of the HeH+ molecule and defend the choice of basis set, fermion-to-qubit mapping, ansatz, and optimizer.
 
-The notebook calculates the ground-state energy of HeH+ over bond lengths from 0.5 to 3.0 angstrom using the Variational Quantum Eigensolver (VQE). Exact diagonalization provides a reference at every geometry. Configuration benchmarks support **Parity mapping, UCCSD, and SLSQP** as the final VQE configuration.
+The notebook calculates the ground-state energy of HeH+ over bond lengths from 0.5 to 3.0 angstrom using the Variational Quantum Eigensolver (VQE). Exact diagonalization provides a reference at every geometry. Configuration benchmarks support **Parity mapping, UCCSD, and SLSQP** as the final VQE configuration. The optimized circuits were also evaluated on the `ibm_fez` quantum processor.
 
 ![HeH+ potential energy curve](HeH_PES.png)
 
@@ -35,6 +35,26 @@ The VQE and exact curves overlap at the plotted scale. The reported equilibrium 
 
 The runtime values are single simulator measurements and should not be treated as hardware benchmarks. The gate counts come from logical circuit decomposition rather than compilation for a specific IBM processor.
 
+### IBM hardware evaluation
+
+The VQE parameters were optimized locally with `StatevectorEstimator`. The resulting parameterized states were then fixed, transpiled, and evaluated on the `ibm_fez` QPU. The hardware did not run the SLSQP optimization loop.
+
+| Hardware setting or result | Value |
+| --- | ---: |
+| Backend | `ibm_fez` |
+| Bond lengths evaluated | 26 |
+| Shots per circuit | 4096 |
+| Runtime resilience level | 0 |
+| Qubits in the parity model | 2 |
+| Example transpiled depth at 0.8 angstrom | 9 |
+| Example hardware gates at 0.8 angstrom | 8 `sx`, 6 `rz`, 2 `cz` |
+| Hardware mean absolute error | 0.05126557 Hartree |
+| Hardware maximum absolute error | 0.12050707 Hartree |
+
+![HeH+ simulation and IBM hardware potential-energy curves](HeH_IBM_Hardware_PES.png)
+
+At 0.8 angstrom, the ideal VQE energy was -2.85570860 Hartree and the measured hardware energy was -2.78027131 Hartree, a difference of 0.07543729 Hartree. The reported standard uncertainty was 0.00637566 Hartree. The much larger energy difference shows that device noise and systematic bias dominate the shot uncertainty in this unmitigated experiment.
+
 ## Method
 
 For each bond length, the notebook:
@@ -42,10 +62,11 @@ For each bond length, the notebook:
 1. Defines HeH+ with two electrons using `charge=1` and `spin=0`.
 2. Uses PySCF to generate one-electron and two-electron integrals.
 3. Uses parity mapping with particle-number reduction to obtain a two-qubit Hamiltonian.
-4. Uses VQE to minimize the electronic energy.
-5. Adds the nuclear repulsion energy to obtain the total molecular energy.
-6. Compares the result with exact diagonalization.
-7. Reuses the optimized parameters as the initial point for the next bond length.
+4. Uses a noiseless statevector VQE to minimize the electronic energy.
+5. Reuses the optimized parameters as the initial point for the next bond length.
+6. Binds the optimized parameters and transpiles each circuit for `ibm_fez`.
+7. Evaluates the fixed circuits on the QPU with 4096 shots and no resilience mitigation.
+8. Adds the nuclear repulsion energy and compares the ideal and hardware results with exact diagonalization.
 
 ## Choice of basis set: STO-3G
 
@@ -81,7 +102,7 @@ L-BFGS-B produced the smallest single-point error in the comparison, but SLSQP w
 
 The potential-energy scan also uses a warm start: the optimal parameters from one bond length initialize the next calculation. Neighboring molecular geometries have similar ground states, so this reduces repeated optimization work and helps maintain a smooth curve.
 
-SLSQP is less suitable for noisy quantum-hardware measurements because shot noise can make numerical gradients unreliable. SPSA or another noise-tolerant optimizer would be a stronger choice for a hardware experiment. This project uses SLSQP because its goal is to evaluate the chemistry and ansatz accuracy on a noiseless simulator.
+SLSQP is less suitable for an optimization loop executed directly on noisy quantum hardware because shot noise can make numerical gradients unreliable. This project therefore optimizes locally with SLSQP and sends only the fixed optimized circuits to the QPU. SPSA or another noise-tolerant optimizer would be a stronger choice for a future hardware-in-the-loop VQE experiment.
 
 ## Validation
 
@@ -89,12 +110,13 @@ Every VQE result is compared with `NumPyMinimumEigensolver` using the molecular 
 
 The close agreement confirms that the optimizer converged and that the selected UCCSD ansatz represents the ground state accurately within the STO-3G model. The configuration comparison changes one or more VQE components and records qubits, logical two-qubit gates, optimizer evaluations, runtime, and error. The full-curve comparison also confirms that parity and Jordan-Wigner produce the same potential-energy surface within numerical precision.
 
-These results do not demonstrate quantum advantage because both algorithms run on a classical computer and the molecular model is intentionally small.
+The hardware run validates the complete path from molecular Hamiltonian to a transpiled circuit and a real QPU expectation value. The hardware errors are much larger than the ideal VQE errors because the experiment used no resilience mitigation. The results do not demonstrate quantum advantage because the molecular model is intentionally small and the variational parameters were optimized classically.
 
 ## Repository contents
 
 - `QuantumChemistry.ipynb`: complete calculation and analysis
 - `HeH_PES.png`: potential-energy curve
+- `HeH_IBM_Hardware_PES.png`: ideal, exact, and IBM QPU curves
 - `HeH_PES_results.csv`: numerical data for all geometries
 - `requirements.txt`: Python dependencies
 
@@ -115,7 +137,14 @@ Start Jupyter and run the cells in `QuantumChemistry.ipynb` from top to bottom:
 jupyter lab
 ```
 
-The scan writes `HeH_PES_results.csv` and `HeH_PES.png` to the current working directory.
+Simulator-only cells require no IBM account. Before running hardware cells, export your IBM Quantum credentials locally:
+
+```bash
+export QISKIT_IBM_TOKEN="your-token"
+export QISKIT_IBM_INSTANCE="your-instance"
+```
+
+Never place credentials directly in the notebook or commit them to Git. Hardware availability, queue time, calibration, and results can change between runs. The scans write their CSV data and figures to the current working directory.
 
 ## Possible extensions
 
